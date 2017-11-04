@@ -27,16 +27,21 @@ sase_data = 'SASE_25fs_2p3nm_field_50000runs.mat'
 #sase_data = 'SASE_8fs_2p3A_5runs.mat'; sase_path = hard_xray_path
 amo_data = 'CO_sims_6fs_2eV.mat'
 
+save_path = '/Users/dratner/Dropbox/ResearchTopics/GhostImaging/Python/figs/journal/'
+
 sase_file = os.path.join(sase_path,sase_data)
 amo_file = os.path.join(amo_path,amo_data)
 
+use_fluct = 1        # subtract mean from autocorrelation and measurement
+use_square = 1
+use_field = 1
 
 alpha = 1e-6    # regularization parameter
 l1_ratio = 1e-4
 XTCAV_FWHM = 1.*2.  # resolution in fsec (FWHM)
 XTCAV_noise = 0e-2   # rms noise on XTCAV
 spec_noise = 10e-1   # noise fraction on spectrometer
-n_elec = 100          # number of electrons measured
+n_elec = 200          # number of electrons measured
 N_samp = -1
 
 
@@ -106,12 +111,29 @@ M_meas=M_sig
 
 
 # Estimate measured SASE
-power_smear = tu.gauss_smear(power,t_sase,sigma=XTCAV_FWHM/2.35)  # add gaussian smearing
-power_meas = power_smear[:,t_samp]                                # downsample in time
-XTCAV_noise=XTCAV_noise*np.max(power_meas)/2
-power_meas = tu.add_noise(power_meas,noise=XTCAV_noise)           # add white noise
-I_meas = tu.calc_impulse(power_meas)                              # calculate measured impulse
-I_field = (np.abs(tu.calc_impulse(field2)))**2
+if use_field:
+    if use_square:
+        I_field = (np.abs(tu.calc_impulse(field2)))**2
+        save_path=os.path.join(save_path,'field')
+    else:
+        I_field = (np.abs(tu.calc_impulse(field2)))
+        save_path=os.path.join(save_path,'field2')
+    I_exp=I_field
+else:
+    power_smear = tu.gauss_smear(power,t_sase,sigma=XTCAV_FWHM/2.35)  # add gaussian smearing
+    power_meas = power_smear[:,t_samp]                                # downsample in time
+    XTCAV_noise=XTCAV_noise*np.max(power_meas)/2
+    power_meas = tu.add_noise(power_meas,noise=XTCAV_noise)           # add white noise
+    I_meas = tu.calc_impulse(power_meas)                              # calculate measured impulse
+    save_path=os.path.join(save_path,'power')
+    
+    I_exp=I_field
+
+if use_fluct:
+    M_meas_mu=np.mean(M_meas,axis=0)
+    I_exp_mu=np.mean(I_exp,axis=0)
+    M_meas=M_meas-M_meas_mu
+    I_exp=I_exp-I_exp_mu
 
 # Save data to .mat
 # tu.save_data
@@ -142,7 +164,7 @@ R_est=np.zeros(R2.shape)
 clf = sklm.ElasticNet(alpha=alpha,l1_ratio=l1_ratio,positive=True,max_iter=1e6)
 #clf = sklm.ElasticNet(alpha=alpha,l1_ratio=l1_ratio,positive=True,max_iter=1e4,
 #    fit_intercept=False,normalize=True,selection='random')
-clf.fit(I_field,M_meas)
+clf.fit(I_exp,M_meas)
 R_est=clf.coef_
 
 #plt.imshow(R_est[:-1,:], aspect='auto',interpolation='nearest',extent=R_extent,cmap=cmap);
@@ -156,11 +178,11 @@ R_est=clf.coef_
 
 #----------
 # R_mas
-tu.make_heatmap(R2.T,extent=R_extent,xlim=t_plot,title='simulated ground truth',savename='figs/AMO/25fs_sim.png')
+tu.make_heatmap(R2.T,extent=R_extent,xlim=t_plot,title='simulated ground truth',savename=save_path+'25fs_sim.png')
 
 #----------
 # R_est
-savename='figs/AMO/Rfield_est_%delec_%0.1ffsec_%dnoise.png' % (n_elec,XTCAV_FWHM,XTCAV_noise*100)
+savename=save_path+'Rfield_est_%delec_%0.1ffsec_%dnoise.png' % (n_elec,XTCAV_FWHM,XTCAV_noise*100)
 title='Reconstructed response'
 tu.make_heatmap(R_est,extent=R_extent,vmin=vmin,vmax=vmax,xlim=t_plot,title=title,savename=savename)
 
@@ -172,7 +194,7 @@ tu.make_heatmap(R_est3,extent=R_extent,vmin=vmin,vmax=vmax,xlim=t_plot,title=tit
 
 #----------
 # SASE power
-savename='figs/AMO/SASE_12fs_%0.1ffsec_%dnoise.png' % (XTCAV_FWHM,XTCAV_noise*100)
+savename=save_path+'SASE_12fs_%0.1ffsec_%dnoise.png' % (XTCAV_FWHM,XTCAV_noise*100)
 title='SASE: %0.1f fsec res' % (XTCAV_FWHM)
 xlabel='Time (fsec)'; ylabel='Power (arb. units)'
 l1='True power'; l2='XTCAV meas.'
@@ -181,7 +203,7 @@ tu.make_plot(x1=t_sase,y1=power[0,:],x2=t_sase2,y2=power_meas[0,:],l1=l1,l2=l2,
 
 #----------
 # SASE power, 50 imshow
-savename='figs/AMO/SASE_imshow_12fs_%0.1ffsec_%dnoise_%dshots.png' % (XTCAV_FWHM,XTCAV_noise*100,N_shots)
+savename=save_path+'SASE_imshow_12fs_%0.1ffsec_%dnoise_%dshots.png' % (XTCAV_FWHM,XTCAV_noise*100,N_shots)
 title='Measured power: %0.1f fsec res' % (XTCAV_FWHM)
 xlabel='Time (fsec)';
 tu.make_heatmap(dat=power_meas[:N_shots,:],extent=[t_sase2[0],t_sase2[-1],N_shots,0],xlabel=xlabel,ylabel='Shot number',
@@ -191,7 +213,7 @@ tu.make_heatmap(dat=power_meas[:N_shots,:],extent=[t_sase2[0],t_sase2[-1],N_shot
 
 #----------
 # SASE Impulse
-savename='figs/AMO/Impulse_12fs_%0.1ffsec_%dnoise.png' % (XTCAV_FWHM,XTCAV_noise*100)
+savename=save_path+'Impulse_12fs_%0.1ffsec_%dnoise.png' % (XTCAV_FWHM,XTCAV_noise*100)
 title='Impulse: %0.1f fsec res' % (XTCAV_FWHM)
 xlabel='Delay (fsec)'; ylabel='Amplitude (arb. units)'
 l1='True impulse'; l2='Meas. impulse'
@@ -202,7 +224,7 @@ tu.make_plot(x1=t_sase,y1=I_true0[0],x2=t_sase2,y2=I_meas[0,:],l1=l1,l2=l2,
 #----------
 # SASE Impulse, 20
 N_shots=20
-savename='figs/AMO/Impulse_%0.1ffsec_%dnoise_%dshots.png' % (XTCAV_FWHM,XTCAV_noise*100,N_shots)
+savename=save_path+'Impulse_%0.1ffsec_%dnoise_%dshots.png' % (XTCAV_FWHM,XTCAV_noise*100,N_shots)
 title='Impulse: %d shots, %0.1f fsec res' % (N_shots,XTCAV_FWHM)
 xlabel='Delay (fsec)'; ylabel='Amplitude (arb. units)'
 tu.make_plot(x1=t_sase2,y1=I_meas[:N_shots,:],
@@ -211,7 +233,7 @@ tu.make_plot(x1=t_sase2,y1=I_meas[:N_shots,:],
 #----------
 # SASE Impulse, 50 imshow
 N_shots=50
-savename='figs/AMO/Impulse_imshow_%0.1ffsec_%dnoise_%dshots.png' % (XTCAV_FWHM,XTCAV_noise*100,N_shots)
+savename=save_path+'Impulse_imshow_%0.1ffsec_%dnoise_%dshots.png' % (XTCAV_FWHM,XTCAV_noise*100,N_shots)
 title='Impulse: %d shots, %0.1f fsec res' % (N_shots,XTCAV_FWHM)
 xlabel='Delay (fsec)';
 tu.make_heatmap(dat=I_meas[:N_shots,:],extent=[t_sase2[0],t_sase2[-1],N_shots,0],xlabel=xlabel,ylabel='Shot number',
@@ -222,7 +244,7 @@ tu.make_heatmap(dat=I_meas[:N_shots,:],extent=[t_sase2[0],t_sase2[-1],N_shots,0]
 
 #----------
 # M (GT)
-savename='figs/AMO/Meas_%delec_%0.1ffsec_%dnoise.png' % (n_elec,XTCAV_FWHM,XTCAV_noise*100)
+savename=save_path+'Meas_%delec_%0.1ffsec_%dnoise.png' % (n_elec,XTCAV_FWHM,XTCAV_noise*100)
 title='Electron spectrum, %d electrons' % (n_elec)
 xlabel='Electron energy (eV)'; ylabel='Counts (arb. units)'
 l1='True signal'; l2='Single shot, %d e-' % n_elec;
@@ -231,7 +253,7 @@ tu.make_plot(x1=np.flipud(eV),y1=M[0,:],x2=np.flipud(eV),y2=M_meas[0,:],l1=l1,l2
 
 #----------
 # M (Avg)
-savename='figs/AMO/AvgMeas_%delec_%0.1ffsec_%dnoise.png' % (n_elec,XTCAV_FWHM,XTCAV_noise*100)
+savename=save_path+'AvgMeas_%delec_%0.1ffsec_%dnoise.png' % (n_elec,XTCAV_FWHM,XTCAV_noise*100)
 title='Electron spectrum, %d electrons' % (n_elec)
 xlabel='Electron energy (eV)'; ylabel='Counts (arb. units)'
 l1='True signal'; l2='Single shot, %d e-' % n_elec;
@@ -242,7 +264,7 @@ tu.make_plot(x1=np.flipud(eV),y1=np.sum(M_meas,axis=0),x2=np.flipud(eV),y2=M_mea
 #----------
 # M, 20
 N_shots=20
-savename='figs/AMO/Meas20_%delec_%0.1ffsec_%dnoise.png' % (n_elec,XTCAV_FWHM,XTCAV_noise*100)
+savename=save_path+'Meas20_%delec_%0.1ffsec_%dnoise.png' % (n_elec,XTCAV_FWHM,XTCAV_noise*100)
 title='Electron spectrum'
 xlabel='Electron energy (eV)'; ylabel='Counts (arb. units)'
 l1='True signal'; l2='Single shot, %d e-' % n_elec;
@@ -253,7 +275,7 @@ tu.make_plot(x1=np.flipud(eV),y1=M[:N_shots,:],l1=l1,l2=l2,
 #----------
 # M, 50 imshow
 N_shots=50
-savename='figs/AMO/Meas20_imshow_%delec_%0.1ffsec_%dnoise.png' % (n_elec,XTCAV_FWHM,XTCAV_noise*100)
+savename=save_path+'Meas20_imshow_%delec_%0.1ffsec_%dnoise.png' % (n_elec,XTCAV_FWHM,XTCAV_noise*100)
 title='Electron spectrum'
 xlabel='Electron energy (eV)';
 l1='True signal'; l2='Single shot, %d e-' % n_elec;
